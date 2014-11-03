@@ -11,30 +11,38 @@ import android.view.ScaleGestureDetector;
 import android.widget.ImageView;
 
 /**
- * Created by jalalsouky on 01/11/14.
+ * Custom ImageView that responds to translation, scaling,
+ * x axis rotation and 2D rotation gestures.
  */
 public class TransformView extends ImageView {
 
-    private Drawable mDrawable;
-
-    private Camera mCamera;
-    private Matrix mMatrix;
-
     private static final int INVALID_POINTER_ID = -1;
-    private int mActivePointerId = INVALID_POINTER_ID;
-
-    private float mLastTouchX, mLastTouchY;
-    private float mPosX, mPosY;
-
-    private float mRotationDegrees;
-
-    private float mRotationXAxis;
-
-    private ScaleGestureDetector mScaleDetector;
-    private float mScaleFactor = 1.f;
 
     private static final float MAX_SCALE_FACTOR = 5.f;
     private static final float MIN_SCALE_FACTOR = .25f;
+
+    private static final int MAX_X_AXIS_ROTATION = 180;
+    private static final int MIN_X_AXIS_ROTATION = -180;
+
+    private static final int ROTATE_SLOW_FACTOR = 3;
+
+    private static final int POINTER_SPAN_THRESHOLD = 300;
+
+    private int mActivePointerId = INVALID_POINTER_ID;
+
+    private Drawable mDrawable;
+
+    private ScaleGestureDetector mScaleDetector;
+    private Camera mCamera;
+    private Matrix mMatrix;
+
+    private float mLastTouchX, mLastTouchY;
+    private float mPosX, mPosY;
+    private float mRotationDegrees;
+    private float mXAxisRotation;
+    private float mYAxisRotation;
+
+    private float mScaleFactor = 1.f;
 
     public TransformView(Context context) {
         this(context, null, 0);
@@ -65,18 +73,20 @@ public class TransformView extends ImageView {
         float centerY = mDrawable.getBounds().centerY();
 
         mCamera.save();
-        mCamera.rotateX(95);
+        mCamera.rotateX(mXAxisRotation);
+        mCamera.rotateY(mYAxisRotation);
         mCamera.getMatrix(mMatrix);
+        mCamera.restore();
 
         canvas.save();
         canvas.translate(mPosX, mPosY);
-        canvas.scale(mScaleFactor, mScaleFactor, centerX, centerY);
-        canvas.rotate(mRotationDegrees, centerX, centerY);
         canvas.concat(mMatrix);
-        mDrawable.draw(canvas);
-        canvas.restore();
+        canvas.scale(mScaleFactor, mScaleFactor, centerX, centerY);
+        //canvas.rotate(mRotationDegrees, centerX, centerY);
 
-        mCamera.restore();
+        mDrawable.draw(canvas);
+
+        canvas.restore();
     }
 
     @Override
@@ -104,15 +114,23 @@ public class TransformView extends ImageView {
                 final float x = ev.getX(pointerIndex);
                 final float y = ev.getY(pointerIndex);
 
-                if (!mScaleDetector.isInProgress()) {
+                final float dx = x - mLastTouchX;
+                final float dy = y - mLastTouchY;
 
-                    final float dx = x - mLastTouchX;
-                    final float dy = y - mLastTouchY;
+                if (!mScaleDetector.isInProgress()){
 
-                    mPosX += dx;
-                    mPosY += dy;
-
-                    invalidate();
+                    if(ev.getPointerCount() == 1) {
+                        translate(dx, dy);
+                    }
+                    else if(ev.getPointerCount() == 2 &&
+                            mScaleDetector.getCurrentSpanY() <= POINTER_SPAN_THRESHOLD) {
+                        if(Math.abs(dy) > Math.abs(dx)) {
+                            rotateXAxis(dy);
+                        }
+                        else {
+                            rotateYAxis(dx);
+                        }
+                    }
                 }
 
                 rotate(ev);
@@ -138,8 +156,6 @@ public class TransformView extends ImageView {
                         >> MotionEvent.ACTION_POINTER_INDEX_SHIFT;
                 final int pointerId = ev.getPointerId(pointerIndex);
                 if (pointerId == mActivePointerId) {
-                    // This was our active pointer going up. Choose a new
-                    // active pointer and adjust accordingly.
                     final int newPointerIndex = pointerIndex == 0 ? 1 : 0;
                     mLastTouchX = ev.getX(newPointerIndex);
                     mLastTouchY = ev.getY(newPointerIndex);
@@ -155,24 +171,46 @@ public class TransformView extends ImageView {
     private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
         @Override
         public boolean onScale(ScaleGestureDetector detector) {
-            mScaleFactor *= detector.getScaleFactor();
-            mScaleFactor = Math.max(MIN_SCALE_FACTOR, Math.min(mScaleFactor, MAX_SCALE_FACTOR));
 
-            invalidate();
-            return true;
+            if(detector.getCurrentSpanY() > POINTER_SPAN_THRESHOLD) {
+                mScaleFactor *= detector.getScaleFactor();
+                mScaleFactor = Math.max(MIN_SCALE_FACTOR, Math.min(mScaleFactor, MAX_SCALE_FACTOR));
+                invalidate();
+                return true;
+            }
+            else {
+                return false;
+            }
         }
     }
 
     private void rotate(MotionEvent ev) {
-
         if(ev.getPointerCount() > 1) {
             double delta_x = (ev.getX(0) - ev.getX(1));
             double delta_y = (ev.getY(0) - ev.getY(1));
             double radians = Math.atan2(delta_y, delta_x);
-
             mRotationDegrees = (float) Math.toDegrees(radians);
-
             invalidate();
         }
+    }
+
+    private void translate(float dx, float dy) {
+        mPosX += dx;
+        mPosY += dy;
+        invalidate();
+    }
+
+    private void rotateXAxis(float dy) {
+        mXAxisRotation -= dy / ROTATE_SLOW_FACTOR;
+        mXAxisRotation = Math.max(MIN_X_AXIS_ROTATION,
+                Math.min(mXAxisRotation, MAX_X_AXIS_ROTATION));
+        invalidate();
+    }
+
+    private void rotateYAxis(float dx) {
+        mYAxisRotation += dx / ROTATE_SLOW_FACTOR;
+        mYAxisRotation = Math.max(MIN_X_AXIS_ROTATION,
+                Math.min(mYAxisRotation, MAX_X_AXIS_ROTATION));
+        invalidate();
     }
 }
